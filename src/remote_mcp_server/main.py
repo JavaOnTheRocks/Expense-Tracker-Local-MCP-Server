@@ -39,7 +39,7 @@ if DEV_MODE:
 elif all([AUTH_ISSUER, AUTH_AUDIENCE, AUTH_JWKS_URI]):
     auth = JWTVerifier(
         jwks_uri=AUTH_JWKS_URI,
-        issuer=AUTH_ISSUER.rstrip("/"),
+        issuer=AUTH_ISSUER,
         audience=AUTH_AUDIENCE,
     )
 else:
