@@ -9,11 +9,19 @@ authors = [
 requires-python = ">=3.11"
 dependencies = [
     "aiosqlite>=0.22.1",
+<<<<<<< HEAD
     "fastmcp>=4.0.4",
 ]
 
 [project.scripts]
 expense-tracker-mcp-server = "expense_tracker_mcp_server:main"
+=======
+    "fastmcp>=4.0.5",
+]
+
+[project.scripts]
+remote-mcp-server = "remote_mcp_server.main:main"
+>>>>>>> 6b502f6 (Async Version Implemented)
 
 [build-system]
 requires = ["uv_build>=0.12.15,<0.13.0"]

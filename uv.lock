@@ -1079,6 +1079,24 @@ wheels = [
 ]
 
 [[package]]
+<<<<<<< HEAD
+=======
+name = "remote-mcp-server"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "aiosqlite" },
+    { name = "fastmcp" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aiosqlite", specifier = ">=0.22.1" },
+    { name = "fastmcp", specifier = ">=4.0.5" },
+]
+
+[[package]]
+>>>>>>> 6b502f6 (Async Version Implemented)
 name = "rich"
 version = "15.0.0"
 source = { registry = "https://pypi.org/simple" }
