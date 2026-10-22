@@ -9,38 +9,54 @@ from pathlib import Path
 
 import aiosqlite
 from fastmcp import FastMCP
-from fastmcp.server.auth.providers.jwt import JWTVerifier
+from fastmcp.server.auth.providers.auth0 import Auth0Provider
 from fastmcp.server.dependencies import get_access_token
 
 
-
+# =========================================================
+# CONFIGURATION
+# =========================================================
 
 BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = BASE_DIR / "expenses.db"
 CATEGORIES_PATH = BASE_DIR / "categories.json"
 DB_TIMEOUT = 10.0
 
-# Local testing only. Never enable this on a public deployment.
+# Local development only. Never enable on a public deployment.
 DEV_MODE = os.getenv("DEV_MODE", "false").lower() == "true"
 
-AUTH_ISSUER = os.getenv("AUTH_ISSUER")
-AUTH_AUDIENCE = os.getenv("AUTH_AUDIENCE")
-AUTH_JWKS_URI = os.getenv("AUTH_JWKS_URI")
+# Auth0 OpenID Connect configuration and application credentials.
+AUTH0_CONFIG_URL = os.getenv("AUTH0_CONFIG_URL")
+AUTH0_CLIENT_ID = os.getenv("AUTH0_CLIENT_ID")
+AUTH0_CLIENT_SECRET = os.getenv("AUTH0_CLIENT_SECRET")
+AUTH0_AUDIENCE = os.getenv("AUTH0_AUDIENCE")
+
+# Public base URL of this deployed FastMCP server, without /mcp.
+MCP_SERVER_URL = os.getenv("MCP_SERVER_URL")
 
 auth = None
 
 if DEV_MODE:
     print(
-        "WARNING: Development mode enabled. Authentication is disabled. "
-        "Use this mode only on your local machine."
+        "WARNING: Development mode enabled. "
+        "Authentication is disabled. Local use only."
     )
-elif all([AUTH_ISSUER, AUTH_AUDIENCE, AUTH_JWKS_URI]):
-    auth = JWTVerifier(
-        jwks_uri=AUTH_JWKS_URI,
-        issuer=AUTH_ISSUER,
-        audience=AUTH_AUDIENCE,
+elif all(
+    [
+        AUTH0_CONFIG_URL,
+        AUTH0_CLIENT_ID,
+        AUTH0_CLIENT_SECRET,
+        AUTH0_AUDIENCE,
+        MCP_SERVER_URL,
+    ]
+):
+    auth = Auth0Provider(
+        config_url=AUTH0_CONFIG_URL,
+        client_id=AUTH0_CLIENT_ID,
+        client_secret=AUTH0_CLIENT_SECRET,
+        audience=AUTH0_AUDIENCE,
+        base_url=MCP_SERVER_URL,
     )
-
 
 
 # =========================================================
@@ -51,7 +67,8 @@ async def init_db():
     """Create the expenses table and migrate older databases."""
 
     async with aiosqlite.connect(DB_PATH, timeout=DB_TIMEOUT) as db:
-        await db.execute("""
+        await db.execute(
+            """
             CREATE TABLE IF NOT EXISTS expenses (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 date TEXT NOT NULL,
@@ -61,7 +78,8 @@ async def init_db():
                 note TEXT DEFAULT '',
                 user_id TEXT
             )
-        """)
+            """
+        )
 
         async with db.execute("PRAGMA table_info(expenses)") as cursor:
             columns = {row[1] for row in await cursor.fetchall()}
@@ -71,34 +89,43 @@ async def init_db():
                 "ALTER TABLE expenses ADD COLUMN user_id TEXT"
             )
 
-        await db.execute("""
+        await db.execute(
+            """
             CREATE INDEX IF NOT EXISTS idx_expenses_user_date
             ON expenses(user_id, date)
-        """)
+            """
+        )
 
         await db.commit()
 
 
 @asynccontextmanager
 async def app_lifespan(server):
-    """Validate authentication and initialize the database."""
+    """Validate configuration and initialize the database."""
 
-    # Ensure authentication is configured in production.
     if not DEV_MODE and not all(
-        [AUTH_ISSUER, AUTH_AUDIENCE, AUTH_JWKS_URI]
+        [
+            AUTH0_CONFIG_URL,
+            AUTH0_CLIENT_ID,
+            AUTH0_CLIENT_SECRET,
+            AUTH0_AUDIENCE,
+            MCP_SERVER_URL,
+        ]
     ):
         raise RuntimeError(
-            "Authentication is not configured. "
-            "Set AUTH_ISSUER, AUTH_AUDIENCE, and AUTH_JWKS_URI."
+            "OAuth is not configured. Set AUTH0_CONFIG_URL, "
+            "AUTH0_CLIENT_ID, AUTH0_CLIENT_SECRET, "
+            "AUTH0_AUDIENCE, and MCP_SERVER_URL."
         )
 
-    # Initialize the database.
     await init_db()
-
     yield {}
 
 
-# Define the server exactly once, after app_lifespan.
+# =========================================================
+# MCP SERVER
+# =========================================================
+
 mcp = FastMCP(
     "ExpenseTracker",
     auth=auth,
@@ -111,11 +138,8 @@ mcp = FastMCP(
 # =========================================================
 
 def get_current_user_id() -> str:
-    """
-    Get the user ID from a verified token.
+    """Return the authenticated user's stable subject identifier."""
 
-    Local development uses a fixed local-only identity.
-    """
     token = get_access_token()
 
     if token is None:
@@ -127,7 +151,9 @@ def get_current_user_id() -> str:
     user_id = getattr(token, "subject", None) or claims.get("sub")
 
     if not isinstance(user_id, str) or not user_id.strip():
-        raise PermissionError("The access token has no valid subject.")
+        raise PermissionError(
+            "The access token has no valid subject."
+        )
 
     return user_id
 
@@ -140,7 +166,9 @@ def validate_date(value: str, field_name: str) -> str:
     """Validate dates in YYYY-MM-DD format."""
 
     if not isinstance(value, str):
-        raise ValueError(f"{field_name} must use YYYY-MM-DD format.")
+        raise ValueError(
+            f"{field_name} must use YYYY-MM-DD format."
+        )
 
     try:
         parsed = Date.fromisoformat(value)
@@ -150,7 +178,9 @@ def validate_date(value: str, field_name: str) -> str:
         ) from exc
 
     if parsed.isoformat() != value:
-        raise ValueError(f"{field_name} must use YYYY-MM-DD format.")
+        raise ValueError(
+            f"{field_name} must use YYYY-MM-DD format."
+        )
 
     return value
 
@@ -158,13 +188,17 @@ def validate_date(value: str, field_name: str) -> str:
 def validate_amount(amount: float) -> float:
     """Require a finite, positive amount."""
 
-    if isinstance(amount, bool) or not isinstance(amount, (int, float)):
+    if isinstance(amount, bool) or not isinstance(
+        amount, (int, float)
+    ):
         raise ValueError("Amount must be a number.")
 
     amount = float(amount)
 
     if not math.isfinite(amount) or amount <= 0:
-        raise ValueError("Amount must be finite and greater than zero.")
+        raise ValueError(
+            "Amount must be finite and greater than zero."
+        )
 
     return amount
 
@@ -174,6 +208,8 @@ def validate_text(
     field_name: str,
     max_length: int = 500,
 ) -> str:
+    """Validate and normalize text input."""
+
     if not isinstance(value, str):
         raise ValueError(f"{field_name} must be text.")
 
@@ -188,11 +224,15 @@ def validate_text(
 
 
 def validate_date_range(start_date: str, end_date: str):
+    """Validate a date range."""
+
     validate_date(start_date, "start_date")
     validate_date(end_date, "end_date")
 
     if start_date > end_date:
-        raise ValueError("start_date must be on or before end_date.")
+        raise ValueError(
+            "start_date must be on or before end_date."
+        )
 
 
 # =========================================================
@@ -207,7 +247,7 @@ async def add_expense(
     subcategory: str = "",
     note: str = "",
 ):
-    """Add an expense for the current user."""
+    """Add an expense for the authenticated user."""
 
     user_id = get_current_user_id()
 
@@ -458,7 +498,6 @@ async def categories():
 # =========================================================
 
 def main():
-    # Unauthenticated mode binds only to localhost.
     host = "127.0.0.1" if DEV_MODE else "0.0.0.0"
 
     mcp.run(
