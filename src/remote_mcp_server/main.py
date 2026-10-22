@@ -42,11 +42,7 @@ elif all([AUTH_ISSUER, AUTH_AUDIENCE, AUTH_JWKS_URI]):
         issuer=AUTH_ISSUER,
         audience=AUTH_AUDIENCE,
     )
-else:
-    raise RuntimeError(
-        "Authentication is not configured. Set all three AUTH variables "
-        "for deployment. For local testing only, set DEV_MODE=true."
-    )
+
 
 
 # =========================================================
@@ -87,8 +83,20 @@ async def init_db():
 
 @asynccontextmanager
 async def app_lifespan(server):
-    """Initialize the database before serving requests."""
+    """Validate authentication and initialize the database."""
+
+    # Ensure authentication is configured in production.
+    if not DEV_MODE and not all(
+        [AUTH_ISSUER, AUTH_AUDIENCE, AUTH_JWKS_URI]
+    ):
+        raise RuntimeError(
+            "Authentication is not configured. "
+            "Set AUTH_ISSUER, AUTH_AUDIENCE, and AUTH_JWKS_URI."
+        )
+
+    # Initialize the database.
     await init_db()
+
     yield {}
 
 
