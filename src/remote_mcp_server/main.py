@@ -13,9 +13,7 @@ from fastmcp.server.auth.providers.auth0 import Auth0Provider
 from fastmcp.server.dependencies import get_access_token
 
 
-# =========================================================
-# CONFIGURATION
-# =========================================================
+#Configurataion
 
 BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = BASE_DIR / "expenses.db"
