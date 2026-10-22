@@ -24,7 +24,10 @@ DB_TIMEOUT = 10.0
 DEV_MODE = os.getenv("DEV_MODE", "false").lower() == "true"
 
 # Auth0 OpenID Connect configuration and application credentials.
-AUTH0_CONFIG_URL = os.getenv("AUTH0_CONFIG_URL","https://your_auth0_domain/.well-known/openid-configuration")
+AUTH0_CONFIG_URL = os.getenv(
+    "AUTH0_CONFIG_URL",
+    "https://dev-gm4ywt8jbfyhvy8k.us.auth0.com/.well-known/openid-configuration",
+)
 AUTH0_CLIENT_ID = os.getenv("AUTH0_CLIENT_ID")
 AUTH0_CLIENT_SECRET = os.getenv("AUTH0_CLIENT_SECRET")
 AUTH0_AUDIENCE = os.getenv("AUTH0_AUDIENCE")
