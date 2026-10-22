@@ -13,9 +13,7 @@ from fastmcp.server.auth.providers.jwt import JWTVerifier
 from fastmcp.server.dependencies import get_access_token
 
 
-# =========================================================
-# CONFIGURATION
-# =========================================================
+
 
 BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = BASE_DIR / "expenses.db"
