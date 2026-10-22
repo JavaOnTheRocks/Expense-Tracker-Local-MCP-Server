@@ -24,33 +24,54 @@ DB_TIMEOUT = 10.0
 DEV_MODE = os.getenv("DEV_MODE", "false").lower() == "true"
 
 # Auth0 OpenID Connect configuration and application credentials.
+
+
+# Auth0 OpenID Connect configuration and application credentials.
 AUTH0_CONFIG_URL = os.getenv(
     "AUTH0_CONFIG_URL",
     "https://dev-gm4ywt8jbfyhvy8k.us.auth0.com/.well-known/openid-configuration",
-)
-AUTH0_CLIENT_ID = os.getenv("AUTH0_CLIENT_ID")
-AUTH0_CLIENT_SECRET = os.getenv("AUTH0_CLIENT_SECRET")
-AUTH0_AUDIENCE = os.getenv("AUTH0_AUDIENCE")
+).strip()
 
-# Public base URL of this deployed FastMCP server, without /mcp.
-MCP_SERVER_URL = os.getenv("MCP_SERVER_URL")
+AUTH0_CLIENT_ID = os.getenv("AUTH0_CLIENT_ID", "").strip()
+AUTH0_CLIENT_SECRET = os.getenv("AUTH0_CLIENT_SECRET", "").strip()
+AUTH0_AUDIENCE = os.getenv("AUTH0_AUDIENCE", "").strip()
 
-auth = None
+# Public base URL of the deployed FastMCP server, without /mcp.
+MCP_SERVER_URL = os.getenv(
+    "MCP_SERVER_URL",
+    "https://expense-tracker-mcp-server-ak.fastmcp.app",
+).strip().rstrip("/")
 
+DEV_MODE = os.getenv("DEV_MODE", "false").lower() == "true"
+
+# Never silently start a production server without authentication.
 if DEV_MODE:
-    print(
-        "WARNING: Development mode enabled. "
-        "Authentication is disabled. Local use only."
-    )
-elif all(
-    [
-        AUTH0_CONFIG_URL,
-        AUTH0_CLIENT_ID,
-        AUTH0_CLIENT_SECRET,
-        AUTH0_AUDIENCE,
-        MCP_SERVER_URL,
+    auth = None
+    print("WARNING: DEV_MODE enabled; authentication is disabled.")
+else:
+    required_auth_settings = {
+        "AUTH0_CONFIG_URL": AUTH0_CONFIG_URL,
+        "AUTH0_CLIENT_ID": AUTH0_CLIENT_ID,
+        "AUTH0_CLIENT_SECRET": AUTH0_CLIENT_SECRET,
+        "AUTH0_AUDIENCE": AUTH0_AUDIENCE,
+        "MCP_SERVER_URL": MCP_SERVER_URL,
+    }
+
+    missing_settings = [
+        name for name, value in required_auth_settings.items() if not value
     ]
-):
+
+    if missing_settings:
+        raise RuntimeError(
+            "Missing required OAuth settings: "
+            + ", ".join(missing_settings)
+        )
+
+    if "your_auth0_domain" in AUTH0_CONFIG_URL:
+        raise RuntimeError(
+            "AUTH0_CONFIG_URL still contains the placeholder domain."
+        )
+
     auth = Auth0Provider(
         config_url=AUTH0_CONFIG_URL,
         client_id=AUTH0_CLIENT_ID,
@@ -58,7 +79,6 @@ elif all(
         audience=AUTH0_AUDIENCE,
         base_url=MCP_SERVER_URL,
     )
-
 
 # =========================================================
 # DATABASE INITIALIZATION
