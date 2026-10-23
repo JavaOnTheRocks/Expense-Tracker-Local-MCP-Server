@@ -94,13 +94,10 @@ Actual results depend on a successful MCP connection, correct tool execution, an
 
 ## Demo Video
 
-1. Connecting an MCP-compatible client to the Expense Tracker MCP Server.
-2. Adding an expense using natural language.
-3. Listing expenses for a date range.
-4. Generating a spending summary.
-5. Updating and deleting an expense.
 
-<! >
+▶️ **[Watch the Project Demo on YouTube](https://youtu.be/tkY1E3Tor3c)**
+
+In this demo, you'll see how to connect the remote MCP server to Claude and manage expenses using natural-language prompts.
 
 
 ---
@@ -127,43 +124,43 @@ This allows supported MCP clients to interact with the tools using their existin
 
 ## Architecture
 
-```text
-┌─────────────────────────────┐
-│            User             │
-│                             │
-│ "Add ₹250 for lunch today"  │
-└──────────────┬──────────────┘
-               │
-               ▼
-┌─────────────────────────────┐
-│     AI Assistant / Client   │
-│                             │
-│ Interprets the request and  │
-│ selects the appropriate tool│
-└──────────────┬──────────────┘
-               │
-               │ MCP tool call
-               ▼
-┌─────────────────────────────┐
-│   Expense Tracker MCP       │
-│           Server            │
-│                             │
-│ Python + FastMCP            │
-│                             │
-│ • Add expense               │
-│ • List expenses             │
-│ • Summarize expenses        │
-│ • Update expense            │
-│ • Delete expense            │
-└──────────────┬──────────────┘
-               │
-               ▼
-┌─────────────────────────────┐
-│        SQLite Database      │
-│                             │
-│ Expense records             │
-└─────────────────────────────┘
-```
+                        ```text
+                        ┌─────────────────────────────┐
+                        │            User             │
+                        │                             │
+                        │ "Add ₹250 for lunch today"  │
+                        └──────────────┬──────────────┘
+                                    │
+                                    ▼
+                        ┌─────────────────────────────┐
+                        │     AI Assistant / Client   │
+                        │                             │
+                        │ Interprets the request and  │
+                        │ selects the appropriate tool│
+                        └──────────────┬──────────────┘
+                                    │
+                                    │ MCP tool call
+                                    ▼
+                        ┌─────────────────────────────┐
+                        │   Expense Tracker MCP       │
+                        │           Server            │
+                        │                             │
+                        │ Python + FastMCP            │
+                        │                             │
+                        │ • Add expense               │
+                        │ • List expenses             │
+                        │ • Summarize expenses        │
+                        │ • Update expense            │
+                        │ • Delete expense            │
+                        └──────────────┬──────────────┘
+                                    │
+                                    ▼
+                        ┌─────────────────────────────┐
+                        │        SQLite Database      │
+                        │                             │
+                        │ Expense records             │
+                        └─────────────────────────────┘
+                        ```
 
 ### How the architecture works
 
@@ -326,8 +323,8 @@ Install the following:
 Replace the placeholder with your actual public GitHub repository URL.
 
 ```bash
-git clone <YOUR_GITHUB_REPOSITORY_URL>
-cd <YOUR_REPOSITORY_DIRECTORY>
+git clone https://github.com/JavaOnTheRocks/Expense-Tracker-Local-MCP-Server
+cd <Remote-MCP-Server>
 ```
 
 ### Step 2: Create a virtual environment
@@ -393,22 +390,22 @@ Verify that:
 
 The following is an illustrative structure based on the known application entry point. Adjust it to match the actual files in your repository before publishing.
 
-```text
-expense-tracker-mcp-server/
-│
-├── src/
-│   └── remote_mcp_server/
-│       ├── __init__.py
-│       └── main.py
-│
-├── categories.json
-├── pyproject.toml
-├── requirements.txt
-├── .gitignore
-├── .env.example
-├── LICENSE
-└── README.md
-```
+                    ```text
+                    expense-tracker-mcp-server/
+                    │
+                    ├── src/
+                    │   └── remote_mcp_server/
+                    │       ├── __init__.py
+                    │       └── main.py
+                    │
+                    ├── categories.json
+                    ├── pyproject.toml
+                    ├── requirements.txt
+                    ├── .gitignore
+                    ├── .env.example
+                    ├── LICENSE
+                    └── README.md
+                    ```
 
 Include only files that actually exist in your project.
 
