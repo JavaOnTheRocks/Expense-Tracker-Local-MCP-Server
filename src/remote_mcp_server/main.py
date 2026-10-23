@@ -17,9 +17,22 @@ from fastmcp import FastMCP
 # =========================================================
 
 BASE_DIR = Path(__file__).resolve().parent
-DB_PATH = BASE_DIR / "expenses.db"
+
+# Cloud containers should use a writable directory, not the source-code folder.
+# Set EXPENSE_DB_DIR only if your hosting platform provides a persistent,
+# writable mounted directory. Otherwise /tmp is a suitable writable location
+# for a hackathon smoke test (but its contents may be lost on restart).
+DB_DIR = Path(os.environ.get("EXPENSE_DB_DIR", "/tmp/expense-tracker")).expanduser()
+DB_PATH = DB_DIR / "expenses.db"
 CATEGORIES_PATH = BASE_DIR / "categories.json"
 DB_TIMEOUT = 10.0
+
+
+def prepare_db_directory() -> None:
+    """Create and verify the directory used by SQLite."""
+    DB_DIR.mkdir(parents=True, exist_ok=True)
+    if not DB_DIR.is_dir():
+        raise RuntimeError(f"Expense database path is not a directory: {DB_DIR}")
 
 
 # =========================================================
@@ -79,13 +92,14 @@ async def ensure_user_table(db: aiosqlite.Connection, user_id: str):
 
 
 async def init_db():
-    """Initialize the database."""
+    """Create the writable database directory and initialize SQLite."""
+    prepare_db_directory()
 
-    async with aiosqlite.connect(
-        DB_PATH,
-        timeout=DB_TIMEOUT,
-    ) as db:
-        await db.execute("PRAGMA journal_mode=WAL")
+    # Use SQLite's default journal mode for better compatibility with
+    # constrained/ephemeral cloud filesystems. WAL can require sidecar files.
+    async with aiosqlite.connect(str(DB_PATH), timeout=DB_TIMEOUT) as db:
+        await db.execute("PRAGMA foreign_keys = ON")
+        await db.execute("SELECT 1")
         await db.commit()
 
 
