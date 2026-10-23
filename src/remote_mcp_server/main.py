@@ -36,18 +36,31 @@ DB_TIMEOUT = 10.0
 
 
 # Auth0 configuration
+# Use safe defaults for non-secret configuration so FastMCP can
+# inspect the server during the Docker build.
+
 AUTH0_DOMAIN = (
-    os.environ["AUTH0_DOMAIN"]
+    os.getenv(
+        "AUTH0_DOMAIN",
+        "dev-gm4ywt8jbfhyv8k.us.auth0.com",
+    )
     .strip()
     .removeprefix("https://")
     .rstrip("/")
 )
 
-AUTH0_CLIENT_ID = os.environ["AUTH0_CLIENT_ID"]
-AUTH0_CLIENT_SECRET = os.environ["AUTH0_CLIENT_SECRET"]
-AUTH0_AUDIENCE = os.environ["AUTH0_AUDIENCE"]
+AUTH0_CLIENT_ID = os.getenv("AUTH0_CLIENT_ID", "")
+AUTH0_CLIENT_SECRET = os.getenv("AUTH0_CLIENT_SECRET", "")
 
-MCP_SERVER_URL = os.environ["MCP_SERVER_URL"].rstrip("/")
+AUTH0_AUDIENCE = os.getenv(
+    "AUTH0_AUDIENCE",
+    "https://expense-tracker-mcp-api",
+)
+
+MCP_SERVER_URL = os.getenv(
+    "MCP_SERVER_URL",
+    "https://expense-tracker-mcp-server-ak.fastmcp.app",
+).rstrip("/")
 
 
 # =========================================================
