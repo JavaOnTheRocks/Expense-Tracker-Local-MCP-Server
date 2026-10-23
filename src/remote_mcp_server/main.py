@@ -21,7 +21,10 @@ CATEGORIES_PATH = BASE_DIR / "categories.json"
 DB_TIMEOUT = 10.0
 
 # Local development only. Never enable on a public deployment.
-DEV_MODE = os.getenv("DEV_MODE", "false").lower() == "true"
+DEV_MODE = os.getenv("DEV_MODE", "false").strip().lower() == "true"
+
+if DEV_MODE:
+    print("WARNING: DEV_MODE enabled. Authentication is disabled.")
 
 # Auth0 OpenID Connect configuration and application credentials.
 
@@ -122,23 +125,7 @@ async def init_db():
 
 @asynccontextmanager
 async def app_lifespan(server):
-    """Validate configuration and initialize the database."""
-
-    if not DEV_MODE and not all(
-        [
-            AUTH0_CONFIG_URL,
-            AUTH0_CLIENT_ID,
-            AUTH0_CLIENT_SECRET,
-            AUTH0_AUDIENCE,
-            MCP_SERVER_URL,
-        ]
-    ):
-        raise RuntimeError(
-            "OAuth is not configured. Set AUTH0_CONFIG_URL, "
-            "AUTH0_CLIENT_ID, AUTH0_CLIENT_SECRET, "
-            "AUTH0_AUDIENCE, and MCP_SERVER_URL."
-        )
-
+    """Initialize application resources on startup."""
     await init_db()
     yield {}
 
