@@ -1,131 +1,100 @@
-
 import asyncio
+import hashlib
 import json
 import math
 import os
+import re
 from contextlib import asynccontextmanager
 from datetime import date as Date
 from pathlib import Path
 
 import aiosqlite
 from fastmcp import FastMCP
-from fastmcp.server.auth.providers.auth0 import Auth0Provider
-from fastmcp.server.dependencies import get_access_token
 
 
-#Configurataion
+# =========================================================
+# CONFIGURATION
+# =========================================================
 
 BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = BASE_DIR / "expenses.db"
 CATEGORIES_PATH = BASE_DIR / "categories.json"
 DB_TIMEOUT = 10.0
 
-# Local development only. Never enable on a public deployment.
-DEV_MODE = os.getenv("DEV_MODE", "false").strip().lower() == "true"
-
-if DEV_MODE:
-    print("WARNING: DEV_MODE enabled. Authentication is disabled.")
-
-# Auth0 OpenID Connect configuration and application credentials.
-
-
-# Auth0 OpenID Connect configuration and application credentials.
-AUTH0_CONFIG_URL = os.getenv(
-    "AUTH0_CONFIG_URL",
-    "https://dev-gm4ywt8jbfyhvy8k.us.auth0.com/.well-known/openid-configuration",
-).strip()
-
-AUTH0_CLIENT_ID = os.getenv("AUTH0_CLIENT_ID", "").strip()
-AUTH0_CLIENT_SECRET = os.getenv("AUTH0_CLIENT_SECRET", "").strip()
-AUTH0_AUDIENCE = os.getenv("AUTH0_AUDIENCE", "").strip()
-
-# Public base URL of the deployed FastMCP server, without /mcp.
-MCP_SERVER_URL = os.getenv(
-    "MCP_SERVER_URL",
-    "https://expense-tracker-mcp-server-ak.fastmcp.app",
-).strip().rstrip("/")
-
-DEV_MODE = os.getenv("DEV_MODE", "false").lower() == "true"
-
-# Never silently start a production server without authentication.
-if DEV_MODE:
-    auth = None
-    print("WARNING: DEV_MODE enabled; authentication is disabled.")
-else:
-    required_auth_settings = {
-        "AUTH0_CONFIG_URL": AUTH0_CONFIG_URL,
-        "AUTH0_CLIENT_ID": AUTH0_CLIENT_ID,
-        "AUTH0_CLIENT_SECRET": AUTH0_CLIENT_SECRET,
-        "AUTH0_AUDIENCE": AUTH0_AUDIENCE,
-        "MCP_SERVER_URL": MCP_SERVER_URL,
-    }
-
-    missing_settings = [
-        name for name, value in required_auth_settings.items() if not value
-    ]
-
-    if missing_settings:
-        raise RuntimeError(
-            "Missing required OAuth settings: "
-            + ", ".join(missing_settings)
-        )
-
-    if "your_auth0_domain" in AUTH0_CONFIG_URL:
-        raise RuntimeError(
-            "AUTH0_CONFIG_URL still contains the placeholder domain."
-        )
-
-    auth = Auth0Provider(
-        config_url=AUTH0_CONFIG_URL,
-        client_id=AUTH0_CLIENT_ID,
-        client_secret=AUTH0_CLIENT_SECRET,
-        audience=AUTH0_AUDIENCE,
-        base_url=MCP_SERVER_URL,
-    )
 
 # =========================================================
-# DATABASE INITIALIZATION
+# USER TABLE MANAGEMENT
 # =========================================================
+
+def validate_user_id(user_id: str) -> str:
+    """Validate a user identifier."""
+
+    if not isinstance(user_id, str) or not user_id.strip():
+        raise ValueError("user_id must be a non-empty string.")
+
+    if len(user_id) > 200:
+        raise ValueError("user_id cannot exceed 200 characters.")
+
+    return user_id.strip()
+
+
+def get_user_table(user_id: str) -> str:
+    """
+    Generate a deterministic SQLite table name for a user.
+
+    Hashing avoids unsafe SQL identifiers and prevents raw user IDs
+    from appearing in table names.
+    """
+
+    user_id = validate_user_id(user_id)
+
+    digest = hashlib.sha256(user_id.encode("utf-8")).hexdigest()
+
+    return f"expenses_{digest}"
+
+
+async def ensure_user_table(db: aiosqlite.Connection, user_id: str):
+    """Create the user's table if it does not already exist."""
+
+    table = get_user_table(user_id)
+
+    # The table name contains only a fixed prefix and SHA-256 hex.
+    await db.execute(f"""
+        CREATE TABLE IF NOT EXISTS "{table}" (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            date TEXT NOT NULL,
+            amount REAL NOT NULL,
+            category TEXT NOT NULL,
+            subcategory TEXT DEFAULT '',
+            note TEXT DEFAULT ''
+        )
+    """)
+
+    await db.execute(f"""
+        CREATE INDEX IF NOT EXISTS "idx_{table}_date"
+        ON "{table}" (date)
+    """)
+
+    return table
+
 
 async def init_db():
-    """Create the expenses table and migrate older databases."""
+    """Initialize the database."""
 
-    async with aiosqlite.connect(DB_PATH, timeout=DB_TIMEOUT) as db:
-        await db.execute(
-            """
-            CREATE TABLE IF NOT EXISTS expenses (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                date TEXT NOT NULL,
-                amount REAL NOT NULL,
-                category TEXT NOT NULL,
-                subcategory TEXT DEFAULT '',
-                note TEXT DEFAULT '',
-                user_id TEXT
-            )
-            """
-        )
-
-        async with db.execute("PRAGMA table_info(expenses)") as cursor:
-            columns = {row[1] for row in await cursor.fetchall()}
-
-        if "user_id" not in columns:
-            await db.execute(
-                "ALTER TABLE expenses ADD COLUMN user_id TEXT"
-            )
-
-        await db.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_expenses_user_date
-            ON expenses(user_id, date)
-            """
-        )
-
+    async with aiosqlite.connect(
+        DB_PATH,
+        timeout=DB_TIMEOUT,
+    ) as db:
+        await db.execute("PRAGMA journal_mode=WAL")
         await db.commit()
 
 
+# =========================================================
+# APPLICATION LIFESPAN
+# =========================================================
+
 @asynccontextmanager
 async def app_lifespan(server):
-    """Initialize application resources on startup."""
     await init_db()
     yield {}
 
@@ -136,47 +105,17 @@ async def app_lifespan(server):
 
 mcp = FastMCP(
     "ExpenseTracker",
-    auth=auth,
     lifespan=app_lifespan,
 )
-
-
-# =========================================================
-# AUTHENTICATED USER IDENTITY
-# =========================================================
-
-def get_current_user_id() -> str:
-    """Return the authenticated user's stable subject identifier."""
-
-    token = get_access_token()
-
-    if token is None:
-        if DEV_MODE:
-            return "local-dev-user"
-        raise PermissionError("Authentication required.")
-
-    claims = getattr(token, "claims", None) or {}
-    user_id = getattr(token, "subject", None) or claims.get("sub")
-
-    if not isinstance(user_id, str) or not user_id.strip():
-        raise PermissionError(
-            "The access token has no valid subject."
-        )
-
-    return user_id
 
 
 # =========================================================
 # INPUT VALIDATION
 # =========================================================
 
-def validate_date(value: str, field_name: str) -> str:
-    """Validate dates in YYYY-MM-DD format."""
-
+def validate_date(value: str, field_name: str = "date") -> str:
     if not isinstance(value, str):
-        raise ValueError(
-            f"{field_name} must use YYYY-MM-DD format."
-        )
+        raise ValueError(f"{field_name} must use YYYY-MM-DD format.")
 
     try:
         parsed = Date.fromisoformat(value)
@@ -186,16 +125,22 @@ def validate_date(value: str, field_name: str) -> str:
         ) from exc
 
     if parsed.isoformat() != value:
-        raise ValueError(
-            f"{field_name} must use YYYY-MM-DD format."
-        )
+        raise ValueError(f"{field_name} must use YYYY-MM-DD format.")
 
     return value
 
 
-def validate_amount(amount: float) -> float:
-    """Require a finite, positive amount."""
+def validate_date_range(start_date: str, end_date: str):
+    validate_date(start_date, "start_date")
+    validate_date(end_date, "end_date")
 
+    if start_date > end_date:
+        raise ValueError(
+            "start_date must be on or before end_date."
+        )
+
+
+def validate_amount(amount: float) -> float:
     if isinstance(amount, bool) or not isinstance(
         amount, (int, float)
     ):
@@ -216,8 +161,6 @@ def validate_text(
     field_name: str,
     max_length: int = 500,
 ) -> str:
-    """Validate and normalize text input."""
-
     if not isinstance(value, str):
         raise ValueError(f"{field_name} must be text.")
 
@@ -231,53 +174,49 @@ def validate_text(
     return value
 
 
-def validate_date_range(start_date: str, end_date: str):
-    """Validate a date range."""
-
-    validate_date(start_date, "start_date")
-    validate_date(end_date, "end_date")
-
-    if start_date > end_date:
-        raise ValueError(
-            "start_date must be on or before end_date."
-        )
-
-
 # =========================================================
 # ADD EXPENSE
 # =========================================================
 
 @mcp.tool()
 async def add_expense(
+    user_id: str,
     date: str,
     amount: float,
     category: str,
     subcategory: str = "",
     note: str = "",
 ):
-    """Add an expense for the authenticated user."""
+    """Add an expense to the specified user's separate table."""
 
-    user_id = get_current_user_id()
-
-    date = validate_date(date, "date")
+    user_id = validate_user_id(user_id)
+    date = validate_date(date)
     amount = validate_amount(amount)
+
     category = validate_text(category, "category", 100)
+    subcategory = validate_text(subcategory, "subcategory", 100)
+    note = validate_text(note, "note", 2000)
 
     if not category:
         raise ValueError("Category cannot be empty.")
 
-    subcategory = validate_text(subcategory, "subcategory", 100)
-    note = validate_text(note, "note", 2000)
+    async with aiosqlite.connect(
+        DB_PATH,
+        timeout=DB_TIMEOUT,
+    ) as db:
+        table = await ensure_user_table(db, user_id)
 
-    async with aiosqlite.connect(DB_PATH, timeout=DB_TIMEOUT) as db:
-        async with db.execute(
-            """
-            INSERT INTO expenses
-                (date, amount, category, subcategory, note, user_id)
-            VALUES (?, ?, ?, ?, ?, ?)
-            """,
-            (date, amount, category, subcategory, note, user_id),
-        ) as cursor:
+        async with db.execute(f"""
+            INSERT INTO "{table}"
+                (date, amount, category, subcategory, note)
+            VALUES (?, ?, ?, ?, ?)
+        """, (
+            date,
+            amount,
+            category,
+            subcategory,
+            note,
+        )) as cursor:
             expense_id = cursor.lastrowid
 
         await db.commit()
@@ -294,25 +233,29 @@ async def add_expense(
 # =========================================================
 
 @mcp.tool()
-async def list_expenses(start_date: str, end_date: str):
-    """List the current user's expenses within a date range."""
+async def list_expenses(
+    user_id: str,
+    start_date: str,
+    end_date: str,
+):
+    """List expenses from the specified user's separate table."""
 
-    user_id = get_current_user_id()
+    user_id = validate_user_id(user_id)
     validate_date_range(start_date, end_date)
 
-    async with aiosqlite.connect(DB_PATH, timeout=DB_TIMEOUT) as db:
+    async with aiosqlite.connect(
+        DB_PATH,
+        timeout=DB_TIMEOUT,
+    ) as db:
+        table = await ensure_user_table(db, user_id)
         db.row_factory = aiosqlite.Row
 
-        async with db.execute(
-            """
+        async with db.execute(f"""
             SELECT id, date, amount, category, subcategory, note
-            FROM expenses
-            WHERE user_id = ?
-              AND date BETWEEN ? AND ?
+            FROM "{table}"
+            WHERE date BETWEEN ? AND ?
             ORDER BY date ASC, id ASC
-            """,
-            (user_id, start_date, end_date),
-        ) as cursor:
+        """, (start_date, end_date)) as cursor:
             rows = await cursor.fetchall()
 
     return [dict(row) for row in rows]
@@ -324,22 +267,23 @@ async def list_expenses(start_date: str, end_date: str):
 
 @mcp.tool()
 async def summarize(
+    user_id: str,
     start_date: str,
     end_date: str,
     category: str | None = None,
 ):
-    """Summarize the current user's expenses by category."""
+    """Summarize expenses from the specified user's table."""
 
-    user_id = get_current_user_id()
+    user_id = validate_user_id(user_id)
     validate_date_range(start_date, end_date)
 
-    query = """
+    query = f"""
         SELECT category, SUM(amount) AS total_amount
-        FROM expenses
-        WHERE user_id = ?
-          AND date BETWEEN ? AND ?
+        FROM "{{table}}"
+        WHERE date BETWEEN ? AND ?
     """
-    params = [user_id, start_date, end_date]
+
+    params = [start_date, end_date]
 
     if category is not None:
         category = validate_text(category, "category", 100)
@@ -348,7 +292,15 @@ async def summarize(
 
     query += " GROUP BY category ORDER BY category ASC"
 
-    async with aiosqlite.connect(DB_PATH, timeout=DB_TIMEOUT) as db:
+    async with aiosqlite.connect(
+        DB_PATH,
+        timeout=DB_TIMEOUT,
+    ) as db:
+        table = await ensure_user_table(db, user_id)
+
+        # Only the generated table name is interpolated into SQL.
+        query = query.format(table=table)
+
         db.row_factory = aiosqlite.Row
 
         async with db.execute(query, params) as cursor:
@@ -363,6 +315,7 @@ async def summarize(
 
 @mcp.tool()
 async def update_expense(
+    user_id: str,
     expense_id: int,
     date: str | None = None,
     amount: float | None = None,
@@ -370,50 +323,47 @@ async def update_expense(
     subcategory: str | None = None,
     note: str | None = None,
 ):
-    """Update an expense belonging to the current user."""
+    """Update an expense only in the specified user's table."""
 
-    user_id = get_current_user_id()
+    user_id = validate_user_id(user_id)
 
-    if isinstance(expense_id, bool) or not isinstance(expense_id, int):
+    if isinstance(expense_id, bool) or not isinstance(
+        expense_id, int
+    ):
         raise ValueError("expense_id must be an integer.")
 
     if expense_id <= 0:
         raise ValueError("expense_id must be positive.")
 
-    allowed_fields = {
-        "date": date,
-        "amount": amount,
-        "category": category,
-        "subcategory": subcategory,
-        "note": note,
-    }
-
     updates = []
     params = []
 
-    for field, value in allowed_fields.items():
-        if value is None:
-            continue
+    if date is not None:
+        updates.append("date = ?")
+        params.append(validate_date(date))
 
-        if field == "date":
-            value = validate_date(value, "date")
+    if amount is not None:
+        updates.append("amount = ?")
+        params.append(validate_amount(amount))
 
-        elif field == "amount":
-            value = validate_amount(value)
+    if category is not None:
+        category = validate_text(category, "category", 100)
 
-        elif field == "category":
-            value = validate_text(value, "category", 100)
-            if not value:
-                raise ValueError("Category cannot be empty.")
+        if not category:
+            raise ValueError("Category cannot be empty.")
 
-        elif field == "subcategory":
-            value = validate_text(value, "subcategory", 100)
+        updates.append("category = ?")
+        params.append(category)
 
-        elif field == "note":
-            value = validate_text(value, "note", 2000)
+    if subcategory is not None:
+        updates.append("subcategory = ?")
+        params.append(
+            validate_text(subcategory, "subcategory", 100)
+        )
 
-        updates.append(f"{field} = ?")
-        params.append(value)
+    if note is not None:
+        updates.append("note = ?")
+        params.append(validate_text(note, "note", 2000))
 
     if not updates:
         return {
@@ -421,14 +371,19 @@ async def update_expense(
             "message": "No fields provided to update.",
         }
 
-    params.extend([expense_id, user_id])
+    params.append(expense_id)
 
-    query = (
-        f"UPDATE expenses SET {', '.join(updates)} "
-        "WHERE id = ? AND user_id = ?"
-    )
+    async with aiosqlite.connect(
+        DB_PATH,
+        timeout=DB_TIMEOUT,
+    ) as db:
+        table = await ensure_user_table(db, user_id)
 
-    async with aiosqlite.connect(DB_PATH, timeout=DB_TIMEOUT) as db:
+        query = (
+            f'UPDATE "{table}" '
+            f'SET {", ".join(updates)} WHERE id = ?'
+        )
+
         async with db.execute(query, params) as cursor:
             affected = cursor.rowcount
 
@@ -437,7 +392,7 @@ async def update_expense(
     if affected == 0:
         return {
             "status": "error",
-            "message": "Expense not found or access denied.",
+            "message": "Expense not found in this user's table.",
         }
 
     return {
@@ -451,24 +406,31 @@ async def update_expense(
 # =========================================================
 
 @mcp.tool()
-async def delete_expense(expense_id: int):
-    """Delete an expense belonging to the current user."""
+async def delete_expense(
+    user_id: str,
+    expense_id: int,
+):
+    """Delete an expense only from the specified user's table."""
 
-    user_id = get_current_user_id()
+    user_id = validate_user_id(user_id)
 
-    if isinstance(expense_id, bool) or not isinstance(expense_id, int):
+    if isinstance(expense_id, bool) or not isinstance(
+        expense_id, int
+    ):
         raise ValueError("expense_id must be an integer.")
 
     if expense_id <= 0:
         raise ValueError("expense_id must be positive.")
 
-    async with aiosqlite.connect(DB_PATH, timeout=DB_TIMEOUT) as db:
+    async with aiosqlite.connect(
+        DB_PATH,
+        timeout=DB_TIMEOUT,
+    ) as db:
+        table = await ensure_user_table(db, user_id)
+
         async with db.execute(
-            """
-            DELETE FROM expenses
-            WHERE id = ? AND user_id = ?
-            """,
-            (expense_id, user_id),
+            f'DELETE FROM "{table}" WHERE id = ?',
+            (expense_id,),
         ) as cursor:
             affected = cursor.rowcount
 
@@ -477,7 +439,7 @@ async def delete_expense(expense_id: int):
     if affected == 0:
         return {
             "status": "error",
-            "message": "Expense not found or access denied.",
+            "message": "Expense not found in this user's table.",
         }
 
     return {
@@ -490,12 +452,15 @@ async def delete_expense(expense_id: int):
 # CATEGORIES RESOURCE
 # =========================================================
 
-@mcp.resource("expense://categories", mime_type="application/json")
+@mcp.resource(
+    "expense://categories",
+    mime_type="application/json",
+)
 async def categories():
-    """Read shared categories from categories.json."""
+    """Read categories.json without blocking the event loop."""
 
     def read_categories():
-        with CATEGORIES_PATH.open("r", encoding="utf-8") as file:
+        with open(CATEGORIES_PATH, "r", encoding="utf-8") as file:
             return json.load(file)
 
     return await asyncio.to_thread(read_categories)
@@ -506,11 +471,9 @@ async def categories():
 # =========================================================
 
 def main():
-    host = "127.0.0.1" if DEV_MODE else "0.0.0.0"
-
     mcp.run(
         transport="http",
-        host=host,
+        host="0.0.0.0",
         port=int(os.getenv("PORT", "8000")),
     )
 
