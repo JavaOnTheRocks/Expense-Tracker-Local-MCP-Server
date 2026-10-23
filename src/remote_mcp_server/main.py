@@ -205,7 +205,7 @@ def get_current_user_id() -> str:
 
 auth = Auth0Provider(
     config_url=(
-        "https://dev-gm4ywt8jbfhyv8k.us.auth0.com/"
+        "https://dev-gm4ywt8jbfhyv8k.us.auth0.com"
         "/.well-known/openid-configuration"
     ),
     client_id=AUTH0_CLIENT_ID,
