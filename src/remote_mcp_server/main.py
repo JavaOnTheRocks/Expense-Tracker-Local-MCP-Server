@@ -35,22 +35,22 @@ CATEGORIES_PATH = BASE_DIR / "categories.json"
 DB_TIMEOUT = 10.0
 
 
-# Auth0 configuration
-# Use safe defaults for non-secret configuration so FastMCP can
-# inspect the server during the Docker build.
-
-AUTH0_DOMAIN = (
-    os.getenv(
-        "AUTH0_DOMAIN",
-        "dev-gm4ywt8jbfhyv8k.us.auth0.com",
-    )
-    .strip()
-    .removeprefix("https://")
-    .rstrip("/")
+AUTH0_DOMAIN = os.getenv(
+    "AUTH0_DOMAIN",
+    "dev-gm4ywt8jbfhyv8k.us.auth0.com",
 )
 
-AUTH0_CLIENT_ID = os.getenv("AUTH0_CLIENT_ID", "")
-AUTH0_CLIENT_SECRET = os.getenv("AUTH0_CLIENT_SECRET", "")
+# Non-secret placeholders allow FastMCP's build-time inspection
+# to import the server. Set the REAL values in cloud runtime settings.
+AUTH0_CLIENT_ID = os.getenv(
+    "AUTH0_CLIENT_ID",
+    "build-placeholder-client-id",
+)
+
+AUTH0_CLIENT_SECRET = os.getenv(
+    "AUTH0_CLIENT_SECRET",
+    "build-placeholder-client-secret",
+)
 
 AUTH0_AUDIENCE = os.getenv(
     "AUTH0_AUDIENCE",
@@ -60,7 +60,8 @@ AUTH0_AUDIENCE = os.getenv(
 MCP_SERVER_URL = os.getenv(
     "MCP_SERVER_URL",
     "https://expense-tracker-mcp-server-ak.fastmcp.app",
-).rstrip("/")
+)
+
 
 
 # =========================================================
@@ -205,8 +206,8 @@ def get_current_user_id() -> str:
 
 auth = Auth0Provider(
     config_url=(
-        "https://dev-gm4ywt8jbfhyv8k.us.auth0.com"
-        "/.well-known/openid-configuration"
+        "https://dev-gm4ywt8jbfhyv8k.us.auth0.com/"
+        ".well-known/openid-configuration"
     ),
     client_id=AUTH0_CLIENT_ID,
     client_secret=AUTH0_CLIENT_SECRET,
